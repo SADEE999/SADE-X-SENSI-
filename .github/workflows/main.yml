@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-
   workflow_dispatch:
 
 permissions:
@@ -16,35 +15,22 @@ concurrency:
 
 jobs:
 
-  # =====================================================
-  # ANDROID APK
-  # =====================================================
-
+  # ============================================================
+  # BUILD ANDROID APK
+  # ============================================================
   build-apk:
-
     name: Extract ZIP & Build APK
-
     runs-on: ubuntu-latest
 
     steps:
 
-      # -------------------------------------------------
-      # CHECKOUT
-      # -------------------------------------------------
-
       - name: Checkout repository
         uses: actions/checkout@v4
-
-
-      # -------------------------------------------------
-      # FIND ZIP
-      # -------------------------------------------------
 
       - name: Find ZIP
         id: zip
         shell: bash
         run: |
-
           set -e
 
           echo "======================================"
@@ -68,42 +54,27 @@ jobs:
 
           echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
 
-
-      # -------------------------------------------------
-      # EXTRACT ZIP
-      # -------------------------------------------------
-
       - name: Extract ZIP
         shell: bash
         run: |
-
           set -e
 
           rm -rf extracted
-
           mkdir -p extracted
 
-          unzip -o \
-            "${{ steps.zip.outputs.zip_file }}" \
-            -d extracted
+          unzip -o "${{ steps.zip.outputs.zip_file }}" -d extracted
 
           echo ""
           echo "======================================"
           echo "EXTRACTED FILES"
           echo "======================================"
 
-          find extracted -maxdepth 6 -type f | sort
-
-
-      # -------------------------------------------------
-      # FIND ANDROID PROJECT
-      # -------------------------------------------------
+          find extracted -maxdepth 8 -type f | sort
 
       - name: Find Android project
         id: android
         shell: bash
         run: |
-
           set -e
 
           PROJECT=$(find extracted \
@@ -126,35 +97,19 @@ jobs:
 
           echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
 
-
-      # -------------------------------------------------
-      # JAVA 17
-      # -------------------------------------------------
-
       - name: Setup Java 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-
-      # -------------------------------------------------
-      # GRADLE 8.0
-      # -------------------------------------------------
-
       - name: Setup Gradle 8.0
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.0"
 
-
-      # -------------------------------------------------
-      # VERIFY
-      # -------------------------------------------------
-
       - name: Verify Java and Gradle
         run: |
-
           echo "======================================"
           echo "JAVA"
           echo "======================================"
@@ -168,16 +123,10 @@ jobs:
 
           gradle --version
 
-
-      # -------------------------------------------------
-      # ENABLE ANDROIDX
-      # -------------------------------------------------
-
       - name: Enable AndroidX
         working-directory: ${{ steps.android.outputs.project }}
         shell: bash
         run: |
-
           set -e
 
           echo "======================================"
@@ -186,31 +135,20 @@ jobs:
 
           touch gradle.properties
 
-          # Remove old values if they exist
           sed -i '/^android\.useAndroidX=/d' gradle.properties || true
           sed -i '/^android\.enableJetifier=/d' gradle.properties || true
 
-          # Add AndroidX configuration
           echo "android.useAndroidX=true" >> gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
 
           echo ""
-          echo "======================================"
-          echo "GRADLE.PROPERTIES"
-          echo "======================================"
-
+          echo "GRADLE.PROPERTIES:"
           cat gradle.properties
-
-
-      # -------------------------------------------------
-      # FIX REPOSITORY MODE
-      # -------------------------------------------------
 
       - name: Fix Gradle repositories
         working-directory: ${{ steps.android.outputs.project }}
         shell: bash
         run: |
-
           set -e
 
           if [ -f settings.gradle ]; then
@@ -232,16 +170,30 @@ jobs:
 
           cat settings.gradle
 
+      - name: Validate XML resources
+        working-directory: ${{ steps.android.outputs.project }}
+        shell: bash
+        run: |
+          set -e
 
-      # -------------------------------------------------
-      # SHOW PROJECT CONFIG
-      # -------------------------------------------------
+          echo "======================================"
+          echo "CHECKING XML RESOURCES"
+          echo "======================================"
+
+          find app/src/main/res -type f -name "*.xml" -print0 |
+          while IFS= read -r -d '' file; do
+            if grep -n '&[^a-zA-Z#]' "$file" >/dev/null 2>&1; then
+              echo "WARNING: Possible invalid XML entity:"
+              grep -n '&[^a-zA-Z#]' "$file" || true
+            fi
+          done
+
+          echo "XML CHECK COMPLETE"
 
       - name: Inspect Android project
         working-directory: ${{ steps.android.outputs.project }}
         shell: bash
         run: |
-
           echo "======================================"
           echo "BUILD.GRADLE"
           echo "======================================"
@@ -261,11 +213,6 @@ jobs:
           echo "======================================"
 
           cat gradle.properties || true
-
-
-      # -------------------------------------------------
-      # BUILD APK
-      # -------------------------------------------------
 
       - name: Build APK
         working-directory: ${{ steps.android.outputs.project }}
@@ -295,9 +242,9 @@ jobs:
           echo "======================================"
 
           grep -E \
-            "FAILURE:|error:|Error:|Caused by:|Execution failed|Could not|AAPT|Manifest|resource" \
+            "FAILURE:|error:|Error:|Caused by:|Execution failed|Could not|AAPT|Manifest|resource|XMLStreamException|SAXParseException" \
             build.log \
-            | tail -150 || true
+            | tail -200 || true
 
           echo ""
           echo "======================================"
@@ -308,11 +255,6 @@ jobs:
 
           exit "$RESULT"
 
-
-      # -------------------------------------------------
-      # UPLOAD DIAGNOSTIC LOG
-      # -------------------------------------------------
-
       - name: Upload Gradle diagnostic log
         if: always()
         uses: actions/upload-artifact@v4
@@ -321,11 +263,6 @@ jobs:
           path: |
             ${{ steps.android.outputs.project }}/build.log
           if-no-files-found: ignore
-
-
-      # -------------------------------------------------
-      # UPLOAD APK
-      # -------------------------------------------------
 
       - name: Upload APK
         if: success()
@@ -337,35 +274,22 @@ jobs:
           if-no-files-found: error
 
 
-  # =====================================================
-  # ADMIN DASHBOARD
-  # =====================================================
-
+  # ============================================================
+  # ADMIN DASHBOARD → GH-PAGES
+  # ============================================================
   deploy-admin:
-
     name: Extract Admin & Publish
-
     runs-on: ubuntu-latest
 
     steps:
 
-      # -------------------------------------------------
-      # CHECKOUT
-      # -------------------------------------------------
-
       - name: Checkout repository
         uses: actions/checkout@v4
-
-
-      # -------------------------------------------------
-      # FIND ZIP
-      # -------------------------------------------------
 
       - name: Find ZIP
         id: zip
         shell: bash
         run: |
-
           set -e
 
           ZIP_FILE=$(find . \
@@ -376,6 +300,7 @@ jobs:
 
           if [ -z "$ZIP_FILE" ]; then
             echo "ERROR: ZIP file not found."
+            ls -la
             exit 1
           fi
 
@@ -384,35 +309,20 @@ jobs:
 
           echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
 
-
-      # -------------------------------------------------
-      # EXTRACT ZIP
-      # -------------------------------------------------
-
       - name: Extract ZIP
         shell: bash
         run: |
-
           set -e
 
           rm -rf extracted
-
           mkdir -p extracted
 
-          unzip -o \
-            "${{ steps.zip.outputs.zip_file }}" \
-            -d extracted
-
-
-      # -------------------------------------------------
-      # FIND ADMIN DASHBOARD
-      # -------------------------------------------------
+          unzip -o "${{ steps.zip.outputs.zip_file }}" -d extracted
 
       - name: Find Admin Dashboard
         id: admin
         shell: bash
         run: |
-
           set -e
 
           ADMIN=$(find extracted \
@@ -430,17 +340,17 @@ jobs:
               | head -n 1)
 
             if [ -z "$INDEX" ]; then
-
               echo "ERROR: index.html not found."
 
-              find extracted -maxdepth 8 -type f | sort
+              find extracted \
+                -maxdepth 10 \
+                -type f \
+                | sort
 
               exit 1
-
             fi
 
             ADMIN=$(dirname "$INDEX")
-
           fi
 
           echo ""
@@ -452,19 +362,12 @@ jobs:
 
           echo "admin=$ADMIN" >> "$GITHUB_OUTPUT"
 
-
-      # -------------------------------------------------
-      # PREPARE WEBSITE
-      # -------------------------------------------------
-
       - name: Prepare website
         shell: bash
         run: |
-
           set -e
 
           rm -rf public
-
           mkdir -p public
 
           cp -R \
@@ -478,12 +381,10 @@ jobs:
           echo "WEBSITE FILES"
           echo "======================================"
 
-          find public -maxdepth 6 -type f | sort
-
-
-      # -------------------------------------------------
-      # PUBLISH GH-PAGES
-      # -------------------------------------------------
+          find public \
+            -maxdepth 8 \
+            -type f \
+            | sort
 
       - name: Publish Admin Dashboard
         uses: peaceiris/actions-gh-pages@v4

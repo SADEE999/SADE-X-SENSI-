@@ -1,4 +1,4 @@
-name: SADEE X DIMA - ZIP Build & Pages
+name: SADEE X DIMA - ZIP Build
 
 on:
   push:
@@ -7,95 +7,57 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: "pages"
-  cancel-in-progress: true
+  contents: write
 
 jobs:
 
   # =====================================================
-  # 1. EXTRACT ZIP + BUILD APK
+  # ANDROID APK
   # =====================================================
 
-  build-android:
+  build-apk:
 
     name: Extract ZIP & Build APK
     runs-on: ubuntu-latest
 
     steps:
 
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-
-
-      # -----------------------------------------------
-      # Find uploaded ZIP
-      # -----------------------------------------------
 
       - name: Find ZIP
         id: zip
         shell: bash
         run: |
 
-          set -e
-
-          ZIP_FILE=$(find . \
-            -maxdepth 1 \
-            -type f \
-            -iname "*.zip" \
-            | head -n 1)
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "❌ ZIP file not found in repository root."
+            echo "ERROR: ZIP file not found"
             exit 1
           fi
 
-          echo "✅ ZIP found:"
-          echo "$ZIP_FILE"
-
+          echo "ZIP: $ZIP_FILE"
           echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
 
-
-      # -----------------------------------------------
-      # Extract ZIP
-      # -----------------------------------------------
 
       - name: Extract ZIP
         shell: bash
         run: |
 
-          set -e
-
           rm -rf extracted
-
           mkdir -p extracted
 
-          unzip -o \
-            "${{ steps.zip.outputs.zip_file }}" \
-            -d extracted
+          unzip -o "${{ steps.zip.outputs.zip_file }}" -d extracted
 
-          echo ""
-          echo "================================"
-          echo "EXTRACTED FILES"
-          echo "================================"
-
+          echo "===== EXTRACTED ====="
           find extracted -maxdepth 5 -type f | sort
 
 
-      # -----------------------------------------------
-      # Find Android project
-      # -----------------------------------------------
-
-      - name: Find Android project
+      - name: Find Android Project
         id: android
         shell: bash
         run: |
-
-          set -e
 
           PROJECT=$(find extracted \
             -type f \
@@ -104,23 +66,15 @@ jobs:
             | head -n 1)
 
           if [ -z "$PROJECT" ]; then
-            echo "❌ Android project not found."
+            echo "ERROR: Android project not found"
             exit 1
           fi
 
-          echo ""
-          echo "================================"
-          echo "ANDROID PROJECT"
-          echo "================================"
-
+          echo "ANDROID PROJECT:"
           echo "$PROJECT"
 
           echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
 
-
-      # -----------------------------------------------
-      # Java 17
-      # -----------------------------------------------
 
       - name: Setup Java 17
         uses: actions/setup-java@v4
@@ -129,40 +83,20 @@ jobs:
           java-version: "17"
 
 
-      # -----------------------------------------------
-      # FORCE GRADLE 8.0
-      # -----------------------------------------------
-
       - name: Setup Gradle 8.0
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.0"
 
 
-      # -----------------------------------------------
-      # Check Gradle
-      # -----------------------------------------------
-
       - name: Verify Gradle
-        run: |
-
-          echo "================================"
-          echo "GRADLE VERSION"
-          echo "================================"
-
-          gradle --version
+        run: gradle --version
 
 
-      # -----------------------------------------------
-      # Fix repository mode
-      # -----------------------------------------------
-
-      - name: Fix Gradle repositories
+      - name: Fix Gradle Repository
         working-directory: ${{ steps.android.outputs.project }}
         shell: bash
         run: |
-
-          set -e
 
           if [ -f settings.gradle ]; then
 
@@ -176,37 +110,18 @@ jobs:
 
           fi
 
-          echo ""
-          echo "================================"
-          echo "SETTINGS.GRADLE"
-          echo "================================"
-
           cat settings.gradle
 
 
-      # -----------------------------------------------
-      # Build APK
-      # -----------------------------------------------
-
-      - name: Build Debug APK
+      - name: Build APK
         working-directory: ${{ steps.android.outputs.project }}
         shell: bash
         run: |
-
-          set -e
-
-          echo "================================"
-          echo "BUILDING APK"
-          echo "================================"
 
           gradle clean assembleDebug \
             --no-daemon \
             --stacktrace
 
-
-      # -----------------------------------------------
-      # Upload APK
-      # -----------------------------------------------
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -218,81 +133,48 @@ jobs:
 
 
   # =====================================================
-  # 2. ADMIN DASHBOARD → GITHUB PAGES
+  # ADMIN DASHBOARD
   # =====================================================
 
   deploy-admin:
 
-    name: Deploy Admin Dashboard
+    name: Extract Admin & Publish
     runs-on: ubuntu-latest
-
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
 
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-
-      # -----------------------------------------------
-      # Find ZIP
-      # -----------------------------------------------
 
       - name: Find ZIP
         id: zip
         shell: bash
         run: |
 
-          set -e
-
-          ZIP_FILE=$(find . \
-            -maxdepth 1 \
-            -type f \
-            -iname "*.zip" \
-            | head -n 1)
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "❌ ZIP file not found."
+            echo "ERROR: ZIP file not found"
             exit 1
           fi
-
-          echo "ZIP:"
-          echo "$ZIP_FILE"
 
           echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
 
 
-      # -----------------------------------------------
-      # Extract ZIP
-      # -----------------------------------------------
-
       - name: Extract ZIP
-        shell: bash
         run: |
 
-          set -e
-
           rm -rf extracted
-
           mkdir -p extracted
 
-          unzip -o \
-            "${{ steps.zip.outputs.zip_file }}" \
-            -d extracted
+          unzip -o "${{ steps.zip.outputs.zip_file }}" -d extracted
 
-
-      # -----------------------------------------------
-      # Find admin dashboard
-      # -----------------------------------------------
 
       - name: Find Admin Dashboard
         id: admin
         shell: bash
         run: |
-
-          set -e
 
           ADMIN=$(find extracted \
             -type d \
@@ -301,15 +183,13 @@ jobs:
 
           if [ -z "$ADMIN" ]; then
 
-            echo "admin-dashboard folder not found."
-
             INDEX=$(find extracted \
               -type f \
               -name "index.html" \
               | head -n 1)
 
             if [ -z "$INDEX" ]; then
-              echo "❌ index.html not found."
+              echo "ERROR: index.html not found"
               exit 1
             fi
 
@@ -317,38 +197,37 @@ jobs:
 
           fi
 
-          echo ""
-          echo "================================"
-          echo "ADMIN DASHBOARD"
-          echo "================================"
-
+          echo "ADMIN:"
           echo "$ADMIN"
 
           echo "admin=$ADMIN" >> "$GITHUB_OUTPUT"
 
 
-      # -----------------------------------------------
-      # Configure Pages
-      # -----------------------------------------------
+      - name: Prepare Website
+        run: |
 
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
+          rm -rf public
+          mkdir -p public
+
+          cp -R \
+            "${{ steps.admin.outputs.admin }}/." \
+            public/
+
+          touch public/.nojekyll
+
+          echo "===== WEBSITE ====="
+          find public -maxdepth 4 -type f | sort
 
 
-      # -----------------------------------------------
-      # Upload Pages
-      # -----------------------------------------------
+      # =================================================
+      # PUBLISH TO GH-PAGES
+      # =================================================
 
-      - name: Upload Pages Artifact
-        uses: actions/upload-pages-artifact@v4
+      - name: Publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: ${{ steps.admin.outputs.admin }}
-
-
-      # -----------------------------------------------
-      # Deploy
-      # -----------------------------------------------
-
-      - name: Deploy GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./public
+          force_orphan: true
+          enable_jekyll: false

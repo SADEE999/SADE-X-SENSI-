@@ -14,7 +14,6 @@ concurrency:
   group: sadee-x-dima
   cancel-in-progress: true
 
-
 jobs:
 
   # =====================================================
@@ -59,8 +58,7 @@ jobs:
             | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: No ZIP file found."
-            echo "Files in repository:"
+            echo "ERROR: ZIP file not found."
             ls -la
             exit 1
           fi
@@ -81,10 +79,6 @@ jobs:
 
           set -e
 
-          echo "======================================"
-          echo "EXTRACTING ZIP"
-          echo "======================================"
-
           rm -rf extracted
 
           mkdir -p extracted
@@ -94,7 +88,10 @@ jobs:
             -d extracted
 
           echo ""
-          echo "EXTRACTED PROJECT:"
+          echo "======================================"
+          echo "EXTRACTED FILES"
+          echo "======================================"
+
           find extracted -maxdepth 6 -type f | sort
 
 
@@ -109,10 +106,6 @@ jobs:
 
           set -e
 
-          echo "======================================"
-          echo "SEARCHING ANDROID PROJECT"
-          echo "======================================"
-
           PROJECT=$(find extracted \
             -type f \
             -name "settings.gradle" \
@@ -120,17 +113,15 @@ jobs:
             | head -n 1)
 
           if [ -z "$PROJECT" ]; then
-
             echo "ERROR: settings.gradle not found."
-
-            find extracted -maxdepth 8 -type f | sort
-
             exit 1
-
           fi
 
           echo ""
-          echo "ANDROID PROJECT:"
+          echo "======================================"
+          echo "ANDROID PROJECT"
+          echo "======================================"
+
           echo "$PROJECT"
 
           echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
@@ -158,10 +149,10 @@ jobs:
 
 
       # -------------------------------------------------
-      # VERIFY ENVIRONMENT
+      # VERIFY
       # -------------------------------------------------
 
-      - name: Verify build environment
+      - name: Verify Java and Gradle
         run: |
 
           echo "======================================"
@@ -179,40 +170,43 @@ jobs:
 
 
       # -------------------------------------------------
-      # SHOW PROJECT FILES
+      # ENABLE ANDROIDX
       # -------------------------------------------------
 
-      - name: Inspect Android project
+      - name: Enable AndroidX
         working-directory: ${{ steps.android.outputs.project }}
         shell: bash
         run: |
 
+          set -e
+
           echo "======================================"
-          echo "ROOT BUILD.GRADLE"
+          echo "ENABLING ANDROIDX"
           echo "======================================"
 
-          cat build.gradle || true
+          touch gradle.properties
+
+          # Remove old values if they exist
+          sed -i '/^android\.useAndroidX=/d' gradle.properties || true
+          sed -i '/^android\.enableJetifier=/d' gradle.properties || true
+
+          # Add AndroidX configuration
+          echo "android.useAndroidX=true" >> gradle.properties
+          echo "android.enableJetifier=true" >> gradle.properties
 
           echo ""
           echo "======================================"
-          echo "SETTINGS.GRADLE"
+          echo "GRADLE.PROPERTIES"
           echo "======================================"
 
-          cat settings.gradle || true
-
-          echo ""
-          echo "======================================"
-          echo "APP BUILD.GRADLE"
-          echo "======================================"
-
-          cat app/build.gradle || true
+          cat gradle.properties
 
 
       # -------------------------------------------------
       # FIX REPOSITORY MODE
       # -------------------------------------------------
 
-      - name: Fix Gradle repository configuration
+      - name: Fix Gradle repositories
         working-directory: ${{ steps.android.outputs.project }}
         shell: bash
         run: |
@@ -231,29 +225,42 @@ jobs:
 
           fi
 
+          echo ""
           echo "======================================"
-          echo "FINAL SETTINGS.GRADLE"
+          echo "SETTINGS.GRADLE"
           echo "======================================"
 
           cat settings.gradle
 
 
       # -------------------------------------------------
-      # CHECK ANDROID SDK
+      # SHOW PROJECT CONFIG
       # -------------------------------------------------
 
-      - name: Check Android SDK
+      - name: Inspect Android project
+        working-directory: ${{ steps.android.outputs.project }}
         shell: bash
         run: |
 
           echo "======================================"
-          echo "ANDROID SDK"
+          echo "BUILD.GRADLE"
           echo "======================================"
 
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          cat build.gradle || true
 
-          sdkmanager --list_installed 2>/dev/null | head -100 || true
+          echo ""
+          echo "======================================"
+          echo "APP BUILD.GRADLE"
+          echo "======================================"
+
+          cat app/build.gradle || true
+
+          echo ""
+          echo "======================================"
+          echo "GRADLE.PROPERTIES"
+          echo "======================================"
+
+          cat gradle.properties || true
 
 
       # -------------------------------------------------
@@ -269,7 +276,7 @@ jobs:
 
           echo ""
           echo "======================================"
-          echo "STARTING ANDROID BUILD"
+          echo "BUILDING APK"
           echo "======================================"
 
           gradle \
@@ -288,7 +295,7 @@ jobs:
           echo "======================================"
 
           grep -E \
-            "FAILURE:|error:|Error:|Caused by:|Execution failed|Could not|Could not find|AAPT|Manifest|resource" \
+            "FAILURE:|error:|Error:|Caused by:|Execution failed|Could not|AAPT|Manifest|resource" \
             build.log \
             | tail -150 || true
 
@@ -303,7 +310,7 @@ jobs:
 
 
       # -------------------------------------------------
-      # UPLOAD BUILD LOG IF BUILD FAILS
+      # UPLOAD DIAGNOSTIC LOG
       # -------------------------------------------------
 
       - name: Upload Gradle diagnostic log
@@ -368,13 +375,8 @@ jobs:
             | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-
             echo "ERROR: ZIP file not found."
-
-            ls -la
-
             exit 1
-
           fi
 
           echo "ZIP FOUND:"
@@ -401,11 +403,9 @@ jobs:
             "${{ steps.zip.outputs.zip_file }}" \
             -d extracted
 
-          echo "ZIP extracted."
-
 
       # -------------------------------------------------
-      # FIND ADMIN
+      # FIND ADMIN DASHBOARD
       # -------------------------------------------------
 
       - name: Find Admin Dashboard
@@ -444,7 +444,10 @@ jobs:
           fi
 
           echo ""
-          echo "ADMIN DASHBOARD:"
+          echo "======================================"
+          echo "ADMIN DASHBOARD"
+          echo "======================================"
+
           echo "$ADMIN"
 
           echo "admin=$ADMIN" >> "$GITHUB_OUTPUT"
@@ -470,6 +473,7 @@ jobs:
 
           touch public/.nojekyll
 
+          echo ""
           echo "======================================"
           echo "WEBSITE FILES"
           echo "======================================"

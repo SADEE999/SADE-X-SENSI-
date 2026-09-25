@@ -1,0 +1,354 @@
+name: SADEE X DIMA - ZIP Build & Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+
+  # =====================================================
+  # 1. EXTRACT ZIP + BUILD APK
+  # =====================================================
+
+  build-android:
+
+    name: Extract ZIP & Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # -----------------------------------------------
+      # Find uploaded ZIP
+      # -----------------------------------------------
+
+      - name: Find ZIP
+        id: zip
+        shell: bash
+        run: |
+
+          set -e
+
+          ZIP_FILE=$(find . \
+            -maxdepth 1 \
+            -type f \
+            -iname "*.zip" \
+            | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "❌ ZIP file not found in repository root."
+            exit 1
+          fi
+
+          echo "✅ ZIP found:"
+          echo "$ZIP_FILE"
+
+          echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
+
+
+      # -----------------------------------------------
+      # Extract ZIP
+      # -----------------------------------------------
+
+      - name: Extract ZIP
+        shell: bash
+        run: |
+
+          set -e
+
+          rm -rf extracted
+
+          mkdir -p extracted
+
+          unzip -o \
+            "${{ steps.zip.outputs.zip_file }}" \
+            -d extracted
+
+          echo ""
+          echo "================================"
+          echo "EXTRACTED FILES"
+          echo "================================"
+
+          find extracted -maxdepth 5 -type f | sort
+
+
+      # -----------------------------------------------
+      # Find Android project
+      # -----------------------------------------------
+
+      - name: Find Android project
+        id: android
+        shell: bash
+        run: |
+
+          set -e
+
+          PROJECT=$(find extracted \
+            -type f \
+            -name "settings.gradle" \
+            -printf '%h\n' \
+            | head -n 1)
+
+          if [ -z "$PROJECT" ]; then
+            echo "❌ Android project not found."
+            exit 1
+          fi
+
+          echo ""
+          echo "================================"
+          echo "ANDROID PROJECT"
+          echo "================================"
+
+          echo "$PROJECT"
+
+          echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
+
+
+      # -----------------------------------------------
+      # Java 17
+      # -----------------------------------------------
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+
+      # -----------------------------------------------
+      # FORCE GRADLE 8.0
+      # -----------------------------------------------
+
+      - name: Setup Gradle 8.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.0"
+
+
+      # -----------------------------------------------
+      # Check Gradle
+      # -----------------------------------------------
+
+      - name: Verify Gradle
+        run: |
+
+          echo "================================"
+          echo "GRADLE VERSION"
+          echo "================================"
+
+          gradle --version
+
+
+      # -----------------------------------------------
+      # Fix repository mode
+      # -----------------------------------------------
+
+      - name: Fix Gradle repositories
+        working-directory: ${{ steps.android.outputs.project }}
+        shell: bash
+        run: |
+
+          set -e
+
+          if [ -f settings.gradle ]; then
+
+            sed -i \
+              's/RepositoriesMode\.FAIL_ON_PROJECT_REPOS/RepositoriesMode.PREFER_PROJECT/g' \
+              settings.gradle || true
+
+            sed -i \
+              's/RepositoriesMode\.PREFER_SETTINGS/RepositoriesMode.PREFER_PROJECT/g' \
+              settings.gradle || true
+
+          fi
+
+          echo ""
+          echo "================================"
+          echo "SETTINGS.GRADLE"
+          echo "================================"
+
+          cat settings.gradle
+
+
+      # -----------------------------------------------
+      # Build APK
+      # -----------------------------------------------
+
+      - name: Build Debug APK
+        working-directory: ${{ steps.android.outputs.project }}
+        shell: bash
+        run: |
+
+          set -e
+
+          echo "================================"
+          echo "BUILDING APK"
+          echo "================================"
+
+          gradle clean assembleDebug \
+            --no-daemon \
+            --stacktrace
+
+
+      # -----------------------------------------------
+      # Upload APK
+      # -----------------------------------------------
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SADEE-X-DIMA-APK
+          path: |
+            ${{ steps.android.outputs.project }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+
+  # =====================================================
+  # 2. ADMIN DASHBOARD → GITHUB PAGES
+  # =====================================================
+
+  deploy-admin:
+
+    name: Deploy Admin Dashboard
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # -----------------------------------------------
+      # Find ZIP
+      # -----------------------------------------------
+
+      - name: Find ZIP
+        id: zip
+        shell: bash
+        run: |
+
+          set -e
+
+          ZIP_FILE=$(find . \
+            -maxdepth 1 \
+            -type f \
+            -iname "*.zip" \
+            | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "❌ ZIP file not found."
+            exit 1
+          fi
+
+          echo "ZIP:"
+          echo "$ZIP_FILE"
+
+          echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
+
+
+      # -----------------------------------------------
+      # Extract ZIP
+      # -----------------------------------------------
+
+      - name: Extract ZIP
+        shell: bash
+        run: |
+
+          set -e
+
+          rm -rf extracted
+
+          mkdir -p extracted
+
+          unzip -o \
+            "${{ steps.zip.outputs.zip_file }}" \
+            -d extracted
+
+
+      # -----------------------------------------------
+      # Find admin dashboard
+      # -----------------------------------------------
+
+      - name: Find Admin Dashboard
+        id: admin
+        shell: bash
+        run: |
+
+          set -e
+
+          ADMIN=$(find extracted \
+            -type d \
+            -name "admin-dashboard" \
+            | head -n 1)
+
+          if [ -z "$ADMIN" ]; then
+
+            echo "admin-dashboard folder not found."
+
+            INDEX=$(find extracted \
+              -type f \
+              -name "index.html" \
+              | head -n 1)
+
+            if [ -z "$INDEX" ]; then
+              echo "❌ index.html not found."
+              exit 1
+            fi
+
+            ADMIN=$(dirname "$INDEX")
+
+          fi
+
+          echo ""
+          echo "================================"
+          echo "ADMIN DASHBOARD"
+          echo "================================"
+
+          echo "$ADMIN"
+
+          echo "admin=$ADMIN" >> "$GITHUB_OUTPUT"
+
+
+      # -----------------------------------------------
+      # Configure Pages
+      # -----------------------------------------------
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+
+      # -----------------------------------------------
+      # Upload Pages
+      # -----------------------------------------------
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ${{ steps.admin.outputs.admin }}
+
+
+      # -----------------------------------------------
+      # Deploy
+      # -----------------------------------------------
+
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
